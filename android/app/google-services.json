@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "699645052698",
+    "project_id": "homepantry-f22f4",
+    "storage_bucket": "homepantry-f22f4.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:699645052698:android:1249b932e1159433eccea3",
+        "android_client_info": {
+          "package_name": "com.example.home_pantry"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA0s0KHS_llCBoh9y1gHw5PugQ6RdTTiYU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
