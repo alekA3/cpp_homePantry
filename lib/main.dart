@@ -7,15 +7,17 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 
 import 'core/auth/auth_repository.dart';
+import 'core/auth/auth_session_provider.dart';
+import 'core/pantry/pantry_provider.dart';
+import 'core/theme/app_colors.dart';
 import 'core/widgets/app_button.dart';
+import 'features/pantry/pantry_screens.dart';
 import 'firebase_options.dart';
 
-const Color olive = Color(0xFF687044);
-const Color lightOlive = Color(0xFFF0F1E9);
-const Color pageColor = Color(0xFFF7F7F4);
 const String _sentryDsn = String.fromEnvironment(
   'SENTRY_DSN',
   defaultValue: 'https://88d2eeb55c4ac11e2b5507b7617756b2@o4512357863718912.ingest.de.sentry.io/4512357889146960',
@@ -65,39 +67,6 @@ Future<void> _logAnalyticsEvent(String name) async {
   await FirebaseAnalytics.instance.logEvent(name: name);
 }
 
-Future<String> _reportTestError() async {
-  if (kIsWeb) {
-    if (_sentryDsn.isEmpty || !Sentry.isEnabled) {
-      throw StateError(
-        'Sentry не ініціалізовано. Перезапустіть вебзастосунок.',
-      );
-    }
-
-    final eventId = await Sentry.captureException(
-      Exception('Test error from Home Pantry web'),
-      stackTrace: StackTrace.current,
-    );
-    if (eventId == SentryId.empty()) {
-      throw StateError('Sentry не прийняв тестову помилку.');
-    }
-    return 'Sentry';
-  }
-
-  if (_supportsCrashlytics && Firebase.apps.isNotEmpty) {
-    await FirebaseCrashlytics.instance.recordError(
-      Exception('Test error from Home Pantry'),
-      StackTrace.current,
-    );
-    return 'Firebase Crashlytics';
-  }
-
-  throw StateError(
-    _supportsCrashlytics
-        ? 'Firebase Crashlytics не ініціалізовано.'
-        : 'Сервіс звітування про помилки недоступний на цій платформі.',
-  );
-}
-
 Future<void> _showAppMessage(BuildContext context, String message) {
   return showDialog<void>(
     context: context,
@@ -140,47 +109,6 @@ Future<void> _showAppMessage(BuildContext context, String message) {
   );
 }
 
-class _TestErrorButton extends StatefulWidget {
-  const _TestErrorButton();
-
-  @override
-  State<_TestErrorButton> createState() => _TestErrorButtonState();
-}
-
-class _TestErrorButtonState extends State<_TestErrorButton> {
-  bool _isSending = false;
-
-  Future<void> _send() async {
-    setState(() => _isSending = true);
-    String message;
-    try {
-      final service = await _reportTestError();
-      message = 'Тестову помилку надіслано до $service.';
-    } catch (error) {
-      message = 'Не вдалося надіслати тестову помилку: $error';
-    } finally {
-      if (mounted) setState(() => _isSending = false);
-    }
-
-    if (!mounted) return;
-    await _showAppMessage(context, message);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ElevatedButton(
-      onPressed: _isSending ? null : _send,
-      child: _isSending
-          ? const SizedBox(
-              width: 18,
-              height: 18,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          : const Text('Надіслати тестову помилку'),
-    );
-  }
-}
-
 class PantryApp extends StatelessWidget {
   PantryApp({super.key, AuthRepository? repository})
     : repository = repository ?? FirebaseAuthRepository();
@@ -189,19 +117,25 @@ class PantryApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Домашня комора',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        scaffoldBackgroundColor: pageColor,
-        colorScheme: ColorScheme.fromSeed(seedColor: olive),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.white,
-          foregroundColor: Colors.black,
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => AuthSessionProvider(repository)),
+        ChangeNotifierProvider(create: (_) => PantryProvider()),
+      ],
+      child: MaterialApp(
+        title: 'Домашня комора',
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          useMaterial3: true,
+          scaffoldBackgroundColor: pageColor,
+          colorScheme: ColorScheme.fromSeed(seedColor: olive),
+          appBarTheme: const AppBarTheme(
+            backgroundColor: Colors.white,
+            foregroundColor: Colors.black,
+          ),
         ),
+        home: _AuthGate(repository: repository),
       ),
-      home: _AuthGate(repository: repository),
     );
   }
 }
@@ -213,27 +147,19 @@ class _AuthGate extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<AuthUser?>(
-      stream: repository.userChanges,
-      initialData: repository.currentUser,
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
+    return Consumer<AuthSessionProvider>(
+      builder: (context, session, _) {
+        if (session.error != null) {
           return Scaffold(
             body: Center(
               child: Text(
-                'Не вдалося перевірити сеанс: ${_authErrorMessage(snapshot.error!)}',
+                'Не вдалося перевірити сеанс: ${_authErrorMessage(session.error!)}',
                 textAlign: TextAlign.center,
               ),
             ),
           );
         }
-        if (snapshot.connectionState == ConnectionState.waiting &&
-            !snapshot.hasData) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
-        }
-        final user = snapshot.data;
+        final user = session.user;
         if (user == null) return LoginScreen(repository: repository);
         return HomeScreen(user: user, repository: repository);
       },
@@ -677,10 +603,6 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
             ),
           ),
-          if (kDebugMode) ...[
-            const SizedBox(height: 8),
-            const _TestErrorButton(),
-          ],
           if (isSubmitting) ...[
             const SizedBox(height: 12),
             const Center(child: CircularProgressIndicator()),
@@ -915,18 +837,8 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   bool isProfileSelected = false;
-
-  final List<String> sections = [
-    'Головна',
-    'Комори',
-    'Усі запаси',
-    'Комора 1',
-    'Комора 2',
-    'Категорії',
-    'Нагадування',
-  ];
-
-  int selectedIndex = 0;
+  String selectedSectionKey = 'home';
+  GlobalKey<NavigatorState> _contentNavigatorKey = GlobalKey<NavigatorState>();
 
   String get userName => widget.user.displayName.isEmpty
       ? widget.user.email
@@ -953,8 +865,39 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => isProfileSelected = true);
   }
 
+  void _selectSection(_HomeSection section) {
+    setState(() {
+      selectedSectionKey = section.key;
+      isProfileSelected = false;
+      _contentNavigatorKey = GlobalKey<NavigatorState>();
+    });
+    if (section.key == 'all-stock') {
+      unawaited(_logAnalyticsEvent('products_list_opened'));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final pantries = context.watch<PantryProvider>().pantries;
+    final sections = [
+      const _HomeSection('home', 'Головна', Icons.home_outlined),
+      const _HomeSection('pantries', 'Комори', Icons.kitchen_outlined),
+      const _HomeSection('all-stock', 'Усі запаси', Icons.inventory_2_outlined),
+      for (final pantry in pantries)
+        _HomeSection(
+          'pantry:${pantry.id}',
+          pantry.name,
+          Icons.storage_outlined,
+          pantryId: pantry.id,
+        ),
+      const _HomeSection('categories', 'Категорії', Icons.category_outlined),
+      const _HomeSection('reminders', 'Нагадування', Icons.notifications_none),
+    ];
+    var selectedIndex = sections.indexWhere(
+      (section) => section.key == selectedSectionKey,
+    );
+    if (selectedIndex < 0) selectedIndex = 0;
+    final selectedSection = sections[selectedIndex];
     return Scaffold(
       body: SafeArea(
         child: Row(
@@ -988,6 +931,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: ListView.builder(
                       itemCount: sections.length,
                       itemBuilder: (context, index) {
+                        final section = sections[index];
                         return Padding(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 9,
@@ -1000,46 +944,28 @@ class _HomeScreenState extends State<HomeScreen> {
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(9),
                               ),
-                              selected: selectedIndex == index,
+                              selected: selectedSectionKey == section.key,
                               selectedTileColor: lightOlive,
                               leading: Icon(
-                                [
-                                  Icons.home_outlined,
-                                  Icons.kitchen_outlined,
-                                  Icons.inventory_2_outlined,
-                                  Icons.storage_outlined,
-                                  Icons.storage,
-                                  Icons.category_outlined,
-                                  Icons.notifications_none,
-                                ][index],
-                                color: selectedIndex == index
+                                section.icon,
+                                color: selectedSectionKey == section.key
                                     ? olive
                                     : Colors.grey.shade700,
                                 size: 20,
                               ),
                               title: Text(
-                                sections[index],
+                                section.title,
                                 style: TextStyle(
                                   fontSize: 13,
-                                  color: selectedIndex == index
+                                  color: selectedSectionKey == section.key
                                       ? olive
                                       : Colors.black87,
-                                  fontWeight: selectedIndex == index
+                                  fontWeight: selectedSectionKey == section.key
                                       ? FontWeight.bold
                                       : FontWeight.normal,
                                 ),
                               ),
-                              onTap: () {
-                                setState(() {
-                                  selectedIndex = index;
-                                  isProfileSelected = false;
-                                });
-                                if (index == 2) {
-                                  unawaited(
-                                    _logAnalyticsEvent('products_list_opened'),
-                                  );
-                                }
-                              },
+                              onTap: () => _selectSection(section),
                             ),
                           ),
                         );
@@ -1074,17 +1000,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     color: Colors.white,
                     child: Row(
                       children: [
-                        Expanded(
-                          child: Text(
-                            isProfileSelected
-                                ? 'Профіль'
-                                : sections[selectedIndex],
-                            style: const TextStyle(
-                              fontSize: 21,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
+                        const Spacer(),
                         InkWell(
                           borderRadius: BorderRadius.circular(24),
                           onTap: _openProfile,
@@ -1109,9 +1025,29 @@ class _HomeScreenState extends State<HomeScreen> {
                             user: widget.user,
                             repository: widget.repository,
                           )
-                        : selectedIndex == 0
-                        ? const DashboardPlaceholder()
-                        : EmptySection(title: sections[selectedIndex]),
+                        : ClipRect(
+                            child: Navigator(
+                              key: _contentNavigatorKey,
+                              onGenerateRoute: (settings) =>
+                                  MaterialPageRoute<void>(
+                                    settings: settings,
+                                    builder: (_) => PantrySectionScreen(
+                                      sectionKey: selectedSection.key,
+                                      pantryId: selectedSection.pantryId,
+                                      onOpenSection: (key) {
+                                        final target = sections
+                                            .where(
+                                              (section) => section.key == key,
+                                            )
+                                            .firstOrNull;
+                                        if (target != null) {
+                                          _selectSection(target);
+                                        }
+                                      },
+                                    ),
+                                  ),
+                            ),
+                          ),
                   ),
                 ],
               ),
@@ -1123,59 +1059,13 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// Головний екран поки без бізнес-логіки.
-class DashboardPlaceholder extends StatelessWidget {
-  const DashboardPlaceholder({super.key});
+class _HomeSection {
+  const _HomeSection(this.key, this.title, this.icon, {this.pantryId});
 
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.kitchen_outlined, size: 70, color: olive),
-          const SizedBox(height: 16),
-          const Text(
-            'Домашня комора',
-            style: TextStyle(fontSize: 25, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'Ваш простір для керування запасами',
-            style: TextStyle(color: Colors.grey),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class EmptySection extends StatelessWidget {
+  final String key;
   final String title;
-
-  const EmptySection({super.key, required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.inventory_2_outlined, size: 60, color: olive),
-          const SizedBox(height: 15),
-          Text(
-            title,
-            style: const TextStyle(fontSize: 23, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'Цей розділ поки порожній',
-            style: TextStyle(color: Colors.grey),
-          ),
-        ],
-      ),
-    );
-  }
+  final IconData icon;
+  final String? pantryId;
 }
 
 class ProfileContent extends StatefulWidget {
@@ -1329,6 +1219,14 @@ class _ProfileContentState extends State<ProfileContent> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: Text(
+                      'Профіль',
+                      style: Theme.of(context).textTheme.titleLarge
+                          ?.copyWith(fontWeight: FontWeight.bold),
+                    ),
+                  ),
                   _buildAccountPanel(isWide),
                   const SizedBox(height: 24),
                   _buildPasswordPanel(),

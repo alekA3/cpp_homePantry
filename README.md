@@ -2,6 +2,11 @@
 
 A new Flutter project.
 
+## Лабораторна робота №3
+
+Реалізовані екрани, приклади коду керування станом і скриншоти:
+[звіт до лабораторної роботи №3](docs/lab3_report.md).
+
 ## Getting Started
 
 This project is a starting point for a Flutter application.
@@ -20,17 +25,14 @@ samples, guidance on mobile development, and a full API reference.
 
 Flutter Web uses Sentry for error reporting because Firebase Crashlytics does
 not support web. The Sentry project DSN is configured as the default in
-`lib/main.dart`, so the debug test-error button works without extra launch
-arguments. To use a different Sentry project, override it at build or run time:
+`lib/main.dart`. To use a different Sentry project, override it at build or run
+time:
 
 ```powershell
 flutter run -d chrome --dart-define=SENTRY_DSN=YOUR_SENTRY_DSN
 flutter build web --dart-define=SENTRY_DSN=YOUR_SENTRY_DSN
 ```
 
-In the debug build, select **Надіслати тестову помилку** on the login form.
-The app confirms success or displays the sending error. The event appears in
-the Sentry project's **Issues** page after processing.
 The DSN is a public client identifier; do not put Sentry auth tokens or other
 secrets in the app.
 

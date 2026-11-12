@@ -213,7 +213,6 @@ void main() {
 
     expect(repository.googleSignInCalls, 1);
     expect(repository.currentUser?.hasGoogleProvider, isTrue);
-    expect(find.text('Надіслати тестову помилку'), findsNothing);
   });
 
   testWidgets('Google user can set a password and sign in both ways', (
@@ -225,7 +224,6 @@ void main() {
     await tester.pumpWidget(PantryApp(repository: repository));
     await tester.pumpAndSettle();
 
-    expect(find.text('Надіслати тестову помилку'), findsOneWidget);
     await tester.tap(find.text('Увійти через Google'));
     await tester.pumpAndSettle();
     if (find.byType(AlertDialog).evaluate().isNotEmpty) {
@@ -252,8 +250,6 @@ void main() {
     );
     await tester.tap(find.text('OK'));
     await tester.pumpAndSettle();
-    expect(find.text('Надіслати тестову помилку'), findsNothing);
-
     await tester.tap(find.text('ВИЙТИ'));
     await tester.pumpAndSettle();
     if (find.byType(AlertDialog).evaluate().isNotEmpty) {
@@ -331,28 +327,53 @@ void main() {
     expect(avatars, findsNWidgets(2));
   });
 
-  testWidgets('debug error-reporting button shows platform feedback', (
+  testWidgets('pantry, stock, and category navigation keeps the app shell', (
     WidgetTester tester,
   ) async {
-    await tester.binding.setSurfaceSize(const Size(1000, 1000));
+    await tester.binding.setSurfaceSize(const Size(1440, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(
-      MaterialApp(home: LoginScreen(repository: repository)),
+    await repository.signUp(
+      name: 'Олена',
+      email: 'olena@example.com',
+      password: 'secret123',
     );
+    await tester.pumpWidget(PantryApp(repository: repository));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('Надіслати тестову помилку'));
-    await tester.tap(find.text('Надіслати тестову помилку'));
+    if (find.byType(AlertDialog).evaluate().isNotEmpty) {
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+    }
+
+    await tester.tap(find.text('Комори').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Відкрити запаси').first);
+    await tester.pumpAndSettle();
+    expect(find.text('Молоко 2.5%'), findsOneWidget);
+    expect(find.text('Мій профіль'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Переглянути').first);
+    await tester.pumpAndSettle();
+    expect(find.text('ПОТОЧНА КІЛЬКІСТЬ'), findsOneWidget);
+    expect(find.text('Мій профіль'), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Додати запас'));
+    await tester.pumpAndSettle();
+    expect(find.text('Мій профіль'), findsOneWidget);
+    expect(find.byType(BackButton), findsOneWidget);
+    expect(tester.getRect(find.text('Мій профіль')).left, lessThan(205));
+    await tester.pageBack();
     await tester.pumpAndSettle();
 
-    expect(find.byType(AlertDialog), findsOneWidget);
-    expect(find.text('Повідомлення'), findsOneWidget);
-    expect(find.text('OK'), findsOneWidget);
-    expect(find.byTooltip('Закрити'), findsOneWidget);
-    expect(find.byType(SnackBar), findsNothing);
-
-    await tester.tap(find.text('OK'));
+    await tester.tap(find.text('Категорії').first);
     await tester.pumpAndSettle();
-    expect(find.byType(AlertDialog), findsNothing);
+    await tester.tap(find.text('Продукти').last);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Запаси в категорії'), findsOneWidget);
+    expect(find.text('Молоко 2.5%'), findsOneWidget);
+    expect(find.text('ТЕРМІН ПРИДАТНОСТІ'), findsWidgets);
+    expect(find.text('Мій профіль'), findsOneWidget);
   });
 }
 
